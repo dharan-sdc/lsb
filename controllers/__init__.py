@@ -4,6 +4,7 @@ from controllers.donor_controller import DonorController
 from controllers.patient_controller import PatientController
 from controllers.blood_group_controller import BloodGroupController
 from controllers.inventory_controller import InventoryController
+from controllers.hospital_inventory_controller import HospitalInventoryController
 from controllers.donation_controller import DonationController
 from controllers.request_controller import RequestController
 from controllers.issue_controller import IssueController
@@ -19,6 +20,7 @@ __all__ = [
     'PatientController',
     'BloodGroupController',
     'InventoryController',
+    'HospitalInventoryController',
     'DonationController',
     'RequestController',
     'IssueController',

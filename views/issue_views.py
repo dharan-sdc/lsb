@@ -11,10 +11,10 @@ def list_issues():
     return jsonify(res), code
 
 @issue_views.route('', methods=['POST'])
-@jwt_required(roles=['Admin', 'Staff', 'Doctor'])
+@jwt_required(roles=['BloodBank', 'Admin'])
 def issue_blood():
     data = request.get_json() or {}
-    issued_by = g.current_user.get('name', 'Staff')
+    issued_by = g.current_user.get('name', 'BloodBank Staff')
     res, code = IssueController.issue_blood(data, issued_by=issued_by)
     return jsonify(res), code
 

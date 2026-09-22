@@ -129,12 +129,14 @@ def create_app():
 
     return app
 
+# Top-level Flask instance required by Vercel, Gunicorn, and WSGI servers
+app = create_app()
+
 if __name__ == '__main__':
     print("\n" + "="*65)
     print("🩸 BLOOD BANK MANAGEMENT SYSTEM - BACKEND INITIALIZATION")
     print("="*65)
     init_db()
-    app = create_app()
     port = Config.PORT
     print(f"🚀 API server running at: http://0.0.0.0:{port}")
     print(f"📋 Health check endpoint: http://localhost:{port}/health")

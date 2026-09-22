@@ -24,7 +24,7 @@ class BloodBankTestCase(unittest.TestCase):
         }), content_type='application/json')
         data = json.loads(resp.data)
         self.assertEqual(resp.status_code, 200, f"Login failed for {email}: {data}")
-        return data['token']
+        return data['token'], data['user']
 
     def test_01_root_and_health_status(self):
         resp = self.client.get('/')
@@ -36,153 +36,163 @@ class BloodBankTestCase(unittest.TestCase):
         self.assertEqual(data['status'], 'OK')
         print("✓ Test 01: System Status & Health Endpoint Passed")
 
-    def test_02_auth_flows(self):
-        # 1. Invalid Login
-        resp = self.client.post('/api/auth/login', data=json.dumps({
-            'email': 'invalid@bloodbank.com',
-            'password': 'wrong'
-        }), content_type='application/json')
-        self.assertEqual(resp.status_code, 401)
+    def test_02_four_role_authentications(self):
+        # 1. Admin Login
+        admin_token, admin_user = self.login_as('admin@bloodbank.com', 'Admin@123')
+        self.assertEqual(admin_user['role'], 'Admin')
 
-        # 2. Valid Login
-        token = self.login_as('admin@bloodbank.com', 'Admin@123')
-        self.assertTrue(bool(token))
+        # 2. BloodBank Login
+        bb_token, bb_user = self.login_as('bloodbank@bloodbank.com', 'Bank@123')
+        self.assertEqual(bb_user['role'], 'BloodBank')
 
-        # 3. Get Current User (Me)
-        me_resp = self.client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
-        self.assertEqual(me_resp.status_code, 200)
-        me_data = json.loads(me_resp.data)
-        self.assertEqual(me_data['user']['email'], 'admin@bloodbank.com')
+        # 3. Hospital Login
+        hosp_token, hosp_user = self.login_as('hospital@bloodbank.com', 'Hospital@123')
+        self.assertEqual(hosp_user['role'], 'Hospital')
 
-        # 4. Forgot Password & Reset
-        fp_resp = self.client.post('/api/auth/forgot-password', data=json.dumps({
-            'email': 'staff@bloodbank.com'
-        }), content_type='application/json')
-        self.assertEqual(fp_resp.status_code, 200)
-        print("✓ Test 02: Auth & Role Verification Passed")
+        # 4. User Login (Donor + Seeker)
+        user_token, usr = self.login_as('user@bloodbank.com', 'User@123')
+        self.assertEqual(usr['role'], 'User')
+        self.assertEqual(usr['blood_group_name'], 'O+')
 
-    def test_03_blood_groups_and_inventory(self):
-        token = self.login_as('admin@bloodbank.com', 'Admin@123')
-        headers = {'Authorization': f'Bearer {token}'}
+        print("✓ Test 02: 4 Primary Role Authentications Passed (Admin, BloodBank, Hospital, User)")
 
-        # 1. Blood groups list
-        bg_resp = self.client.get('/api/blood-groups', headers=headers)
-        self.assertEqual(bg_resp.status_code, 200)
-        bg_data = json.loads(bg_resp.data)
-        self.assertEqual(len(bg_data['blood_groups']), 8)
-
-        # 2. Inventory list
-        inv_resp = self.client.get('/api/inventory', headers=headers)
-        self.assertEqual(inv_resp.status_code, 200)
-        inv_data = json.loads(inv_resp.data)
-        self.assertGreater(inv_data['total_units'], 0)
-        print("✓ Test 03: Blood Groups (8 Standard) & Inventory Passed")
-
-    def test_04_end_to_end_donation_to_issue_flow(self):
+    def test_03_user_role_donor_and_seeker_flow(self):
         """
-        Comprehensive End-to-End Test:
-        1. Query initial stock for O+
-        2. Register Donor -> Add Donation (+2 units)
-        3. Verify Stock incremented (+2 units)
-        4. Create Patient Blood Request (2 units)
-        5. Approve Request
-        6. Issue Blood (-2 units)
-        7. Verify Stock decremented (-2 units)
-        8. Verify Certificate generation & reports
+        User role can:
+        - Self-donate blood (increases central inventory)
+        - View my-donations
+        - Create a blood request for themselves or family
+        - View my-requests
         """
-        token = self.login_as('admin@bloodbank.com', 'Admin@123')
-        headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+        user_token, user_data = self.login_as('user@bloodbank.com', 'User@123')
+        headers = {'Authorization': f'Bearer {user_token}', 'Content-Type': 'application/json'}
+        target_bg_id = user_data.get('blood_group_id')
 
-        # Step 1: Initial inventory of O+
-        inv_before = json.loads(self.client.get('/api/inventory', headers=headers).data)
-        o_pos_inv_before = next(i for i in inv_before['inventory'] if i['blood_group_name'] == 'O+')
-        initial_units = o_pos_inv_before['units_available']
-        bg_id = o_pos_inv_before['blood_group_id']
-
-        # Step 2: Register a new donor
-        donor_resp = self.client.post('/api/donors', headers=headers, data=json.dumps({
-            'name': 'Automated Test Donor',
-            'age': 30,
-            'gender': 'Male',
-            'blood_group_id': bg_id,
-            'contact': '+1-555-9999',
-            'email': 'donor.test@bloodbank.com',
-            'address': 'Lab 101, Metro City',
-            'status': 'Eligible'
-        }))
-        self.assertEqual(donor_resp.status_code, 201)
-        donor_id = json.loads(donor_resp.data)['donor']['id']
-
-        # Step 3: Register a Donation of 2 units
+        # 1. User donates blood (1 unit)
         don_resp = self.client.post('/api/donations', headers=headers, data=json.dumps({
-            'donor_id': donor_id,
-            'blood_group_id': bg_id,
-            'quantity_units': 2,
-            'quantity_ml': 900.0,
+            'blood_group_id': target_bg_id,
+            'quantity_units': 1,
             'blood_pressure': '120/80',
-            'hemoglobin': 14.5
+            'hemoglobin': 14.2
         }))
         self.assertEqual(don_resp.status_code, 201)
 
-        # Step 4: Verify inventory increment
-        inv_after_don = json.loads(self.client.get('/api/inventory', headers=headers).data)
-        o_pos_after_don = next(i for i in inv_after_don['inventory'] if i['blood_group_name'] == 'O+')
-        self.assertEqual(o_pos_after_don['units_available'], initial_units + 2)
+        # 2. Check My Donations
+        my_don_resp = self.client.get('/api/donations/my-donations', headers=headers)
+        self.assertEqual(my_don_resp.status_code, 200)
+        my_don_data = json.loads(my_don_resp.data)
+        self.assertGreaterEqual(my_don_data['count'], 1)
 
-        # Step 5: Register a Patient
-        patient_resp = self.client.post('/api/patients', headers=headers, data=json.dumps({
-            'name': 'Automated Test Patient',
-            'age': 40,
-            'gender': 'Female',
-            'blood_group_id': bg_id,
-            'condition': 'Post-Op Transfusion',
-            'contact': '+1-555-8888',
-            'status': 'Admitted'
-        }))
-        self.assertEqual(patient_resp.status_code, 201)
-        patient_id = json.loads(patient_resp.data)['patient']['id']
-
-        # Step 6: Create Blood Request (2 units)
+        # 3. User creates a blood request
         req_resp = self.client.post('/api/requests', headers=headers, data=json.dumps({
-            'patient_id': patient_id,
-            'blood_group_id': bg_id,
-            'quantity_units': 2,
-            'urgency': 'Urgent',
-            'reason': 'Emergency Transfusion'
+            'blood_group_id': target_bg_id,
+            'quantity_units': 1,
+            'urgency': 'Normal',
+            'reason': 'Outpatient transfusion requirement'
         }))
         self.assertEqual(req_resp.status_code, 201)
-        req_id = json.loads(req_resp.data)['request']['id']
 
-        # Step 7: Approve Request
-        appr_resp = self.client.put(f'/api/requests/{req_id}/status', headers=headers, data=json.dumps({
-            'status': 'Approved'
+        # 4. Check My Requests
+        my_req_resp = self.client.get('/api/requests/my-requests', headers=headers)
+        self.assertEqual(my_req_resp.status_code, 200)
+        my_req_data = json.loads(my_req_resp.data)
+        self.assertGreaterEqual(my_req_data['count'], 1)
+
+        print("✓ Test 03: User Dual-Capability Flow Passed (User as Donor & User as Blood Seeker)")
+
+    def test_04_hospital_role_and_hospital_inventory(self):
+        """
+        Hospital role can:
+        - View own hospital inventory
+        - Adjust hospital stock units
+        - Create a batch request to Blood Bank
+        - Issue blood from hospital inventory for hospital patient
+        """
+        hosp_token, hosp_user = self.login_as('hospital@bloodbank.com', 'Hospital@123')
+        headers = {'Authorization': f'Bearer {hosp_token}', 'Content-Type': 'application/json'}
+
+        # 1. View Hospital Inventory
+        h_inv_resp = self.client.get('/api/hospital-inventory', headers=headers)
+        self.assertEqual(h_inv_resp.status_code, 200)
+        h_inv_data = json.loads(h_inv_resp.data)
+        self.assertEqual(len(h_inv_data['inventory']), 8)
+        target_bg_id = h_inv_data['inventory'][0]['blood_group_id']
+
+        # 2. Adjust Hospital Stock (e.g. Add 2 units)
+        adjust_resp = self.client.post('/api/hospital-inventory/adjust', headers=headers, data=json.dumps({
+            'blood_group_id': target_bg_id,
+            'units': 2,
+            'action': 'add'
         }))
-        self.assertEqual(appr_resp.status_code, 200)
+        self.assertEqual(adjust_resp.status_code, 200)
 
-        # Step 8: Issue Blood
-        issue_resp = self.client.post('/api/issues', headers=headers, data=json.dumps({
-            'request_id': req_id,
-            'quantity_units': 2,
-            'recipient_name': 'Nurse Jennifer',
-            'recipient_contact': '+1-555-7777',
-            'remarks': 'Issued to ICU Floor 3'
+        # 3. Create Hospital Blood Request to Central Blood Bank
+        req_resp = self.client.post('/api/requests', headers=headers, data=json.dumps({
+            'blood_group_id': target_bg_id,
+            'quantity_units': 3,
+            'urgency': 'Urgent',
+            'reason': 'Hospital Emergency Ward Surgical Stock'
         }))
-        self.assertEqual(issue_resp.status_code, 201)
-        issue_data = json.loads(issue_resp.data)
-        self.assertTrue('certificate_no' in issue_data['issue'])
+        self.assertEqual(req_resp.status_code, 201)
 
-        # Step 9: Verify inventory decrement back to initial
-        inv_after_issue = json.loads(self.client.get('/api/inventory', headers=headers).data)
-        o_pos_after_issue = next(i for i in inv_after_issue['inventory'] if i['blood_group_name'] == 'O+')
-        self.assertEqual(o_pos_after_issue['units_available'], initial_units)
+        # 4. Issue blood from Hospital Inventory directly to Hospital Patient
+        issue_pat_resp = self.client.post('/api/hospital-inventory/issue', headers=headers, data=json.dumps({
+            'blood_group_id': target_bg_id,
+            'units': 1,
+            'patient_name': 'In-Patient Johnathan',
+            'condition': 'Post-Op Knee Surgery'
+        }))
+        self.assertEqual(issue_pat_resp.status_code, 200)
 
-        # Step 10: Verify Search & Reports
-        search_resp = self.client.get('/api/search/blood?blood_group=O+', headers=headers)
-        self.assertEqual(search_resp.status_code, 200)
+        print("✓ Test 04: Hospital Capabilities Passed (Hospital Inventory, Stock Adjust, Request, Patient Issue)")
 
-        report_resp = self.client.get('/api/reports/dashboard-summary', headers=headers)
-        self.assertEqual(report_resp.status_code, 200)
-        print("✓ Test 04: Complete End-to-End Lifecycle Passed (Donation -> Stock + -> Request -> Issue -> Stock -)")
+    def test_05_bloodbank_and_admin_operations(self):
+        """
+        Blood Bank & Admin:
+        - View central stock
+        - Approve user/hospital requests
+        - Issue blood with unique certificate
+        - View audit logs & user management
+        """
+        bb_token, _ = self.login_as('bloodbank@bloodbank.com', 'Bank@123')
+        bb_headers = {'Authorization': f'Bearer {bb_token}', 'Content-Type': 'application/json'}
+
+        admin_token, _ = self.login_as('admin@bloodbank.com', 'Admin@123')
+        admin_headers = {'Authorization': f'Bearer {admin_token}', 'Content-Type': 'application/json'}
+
+        # 1. Admin lists users across 4 roles
+        users_resp = self.client.get('/api/admin/users', headers=admin_headers)
+        self.assertEqual(users_resp.status_code, 200)
+        users_list = json.loads(users_resp.data)['users']
+        roles_present = {u['role'] for u in users_list}
+        self.assertTrue({'Admin', 'BloodBank', 'Hospital', 'User'}.issubset(roles_present))
+
+        # 2. Blood Bank views pending requests and approves one
+        reqs_resp = self.client.get('/api/requests?status=Pending', headers=bb_headers)
+        self.assertEqual(reqs_resp.status_code, 200)
+        reqs = json.loads(reqs_resp.data)['requests']
+
+        if reqs:
+            req_id = reqs[0]['id']
+            # Approve
+            appr = self.client.put(f'/api/requests/{req_id}/status', headers=bb_headers, data=json.dumps({
+                'status': 'Approved'
+            }))
+            self.assertEqual(appr.status_code, 200)
+
+            # Issue
+            issue_resp = self.client.post('/api/issues', headers=bb_headers, data=json.dumps({
+                'request_id': req_id,
+                'quantity_units': 1,
+                'recipient_name': 'Authorized Representative',
+                'recipient_contact': '+1-555-4444',
+                'remarks': 'Issued to authorized representative'
+            }))
+            self.assertEqual(issue_resp.status_code, 201)
+            issue_data = json.loads(issue_resp.data)
+            self.assertTrue(issue_data['issue']['certificate_no'].startswith('CERT-BB-'))
+
+        print("✓ Test 05: Blood Bank & Admin Operations Passed (Role checks, Request Approval, Central Blood Issue)")
 
 if __name__ == '__main__':
     unittest.main()

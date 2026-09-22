@@ -4,6 +4,7 @@ from views.donor_views import donor_views
 from views.patient_views import patient_views
 from views.blood_group_views import blood_group_views
 from views.inventory_views import inventory_views
+from views.hospital_inventory_views import hospital_inventory_views
 from views.donation_views import donation_views
 from views.request_views import request_views
 from views.issue_views import issue_views
@@ -19,6 +20,7 @@ def register_blueprints(app):
     app.register_blueprint(patient_views)
     app.register_blueprint(blood_group_views)
     app.register_blueprint(inventory_views)
+    app.register_blueprint(hospital_inventory_views)
     app.register_blueprint(donation_views)
     app.register_blueprint(request_views)
     app.register_blueprint(issue_views)
@@ -26,4 +28,3 @@ def register_blueprints(app):
     app.register_blueprint(search_views)
     app.register_blueprint(report_views)
     app.register_blueprint(notification_views)
-

@@ -40,6 +40,37 @@ def init_db():
     if success:
         print("🛠️ [DATABASE SCHEMA] Ensuring all table schemas are created...")
         Base.metadata.create_all(bind=engine)
+        
+        # Safe column migrations for schema updates
+        with engine.connect() as conn:
+            migration_statements = [
+                # Users table columns
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS blood_group_id INTEGER REFERENCES blood_groups(id);",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS hospital_id INTEGER REFERENCES hospitals(id);",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER;",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(20);",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;",
+                
+                # Donations table columns
+                "ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);",
+                "ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS donor_name VARCHAR(150);",
+                "ALTER TABLE blood_donations ALTER COLUMN donor_id DROP NOT NULL;",
+                
+                # Requests table columns
+                "ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);",
+                "ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS requester_type VARCHAR(30) DEFAULT 'User';",
+                "ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS patient_name VARCHAR(150);",
+                "ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS patient_age INTEGER;",
+                "ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS patient_gender VARCHAR(20);",
+                "ALTER TABLE blood_requests ALTER COLUMN patient_id DROP NOT NULL;"
+            ]
+            for stmt in migration_statements:
+                try:
+                    conn.execute(text(stmt))
+                    conn.commit()
+                except Exception as e:
+                    print(f"Migration note: {e}")
+
         print("✅ [DATABASE SCHEMA] All database tables ready.")
 
 @contextmanager
@@ -49,4 +80,3 @@ def get_db():
         yield db
     finally:
         db.close()
-

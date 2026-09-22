@@ -21,9 +21,14 @@ def create_user():
         name=data.get('name'),
         email=data.get('email'),
         password=data.get('password'),
-        role=data.get('role', 'Staff'),
+        role=data.get('role', 'User'),
         status=data.get('status', 'Active'),
-        phone=data.get('phone', '')
+        phone=data.get('phone', ''),
+        hospital_id=data.get('hospital_id'),
+        blood_group_id=data.get('blood_group_id'),
+        age=data.get('age'),
+        gender=data.get('gender'),
+        address=data.get('address')
     )
     return jsonify(res), status_code
 

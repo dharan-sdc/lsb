@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from database import get_db
-from models import BloodIssue, BloodRequest, BloodInventory, BloodGroup
+from models import BloodIssue, BloodRequest, BloodInventory, HospitalInventory, BloodGroup
 from auth_utils import log_audit, create_notification
 
 class IssueController:
@@ -16,7 +16,7 @@ class IssueController:
             }, 200
 
     @staticmethod
-    def issue_blood(data, issued_by='Staff'):
+    def issue_blood(data, issued_by='BloodBank Staff'):
         request_id = data.get('request_id')
         recipient_name = (data.get('recipient_name') or '').strip()
         recipient_contact = (data.get('recipient_contact') or '').strip()
@@ -50,7 +50,7 @@ class IssueController:
             else:
                 quantity_to_issue = req.quantity_units
 
-            # Check stock inventory
+            # Check central stock inventory
             inv = db.query(BloodInventory).filter(BloodInventory.blood_group_id == req.blood_group_id).first()
             bg_name = req.blood_group.group_name if req.blood_group else 'Blood'
 
@@ -58,19 +58,39 @@ class IssueController:
                 available = inv.units_available if inv else 0
                 return {
                     'success': False,
-                    'message': f'Insufficient stock for blood group {bg_name}. Required: {quantity_to_issue} units, Available in stock: {available} units.'
+                    'message': f'Insufficient stock in Blood Bank for {bg_name}. Required: {quantity_to_issue} units, Available: {available} units.'
                 }, 400
 
-            # 1. Deduct Inventory
+            # 1. Deduct Central Blood Bank Inventory
             inv.units_available -= quantity_to_issue
             inv.total_ml = max(0.0, inv.total_ml - (float(quantity_to_issue) * 450.0))
             inv.last_updated = datetime.now(timezone.utc)
 
-            # 2. Update Request status to Completed
+            # 2. If requested by a Hospital, credit the Hospital's own inventory
+            if req.hospital_id:
+                hosp_inv = db.query(HospitalInventory).filter(
+                    HospitalInventory.hospital_id == req.hospital_id,
+                    HospitalInventory.blood_group_id == req.blood_group_id
+                ).first()
+                if hosp_inv:
+                    hosp_inv.units_available += quantity_to_issue
+                    hosp_inv.total_ml += float(quantity_to_issue) * 450.0
+                    hosp_inv.last_updated = datetime.now(timezone.utc)
+                else:
+                    hosp_inv = HospitalInventory(
+                        hospital_id=req.hospital_id,
+                        blood_group_id=req.blood_group_id,
+                        units_available=quantity_to_issue,
+                        total_ml=float(quantity_to_issue) * 450.0,
+                        low_stock_threshold=3
+                    )
+                    db.add(hosp_inv)
+
+            # 3. Update Request status to Completed
             req.status = 'Completed'
             req.updated_at = datetime.now(timezone.utc)
 
-            # 3. Create Issue Record & Certificate
+            # 4. Create Issue Record & Certificate
             unique_suffix = str(uuid.uuid4())[:8].upper()
             issue_code = f"ISS-{datetime.now().strftime('%Y%m%d')}-{unique_suffix}"
             cert_no = f"CERT-BB-{datetime.now().strftime('%Y%m%d')}-{unique_suffix}"
@@ -89,24 +109,25 @@ class IssueController:
             )
             db.add(issue)
 
-            # 4. Low Stock Alert Check after deduction
+            # 5. Low Stock Alert Check after deduction
             if inv.units_available <= inv.low_stock_threshold:
                 create_notification(
                     db,
-                    title=f"⚠️ Low Stock Alert: {bg_name} ({inv.units_available} Units Left)",
+                    title=f"⚠️ Central Blood Bank Low Stock Alert: {bg_name} ({inv.units_available} Units Left)",
                     message=f"After issuing {quantity_to_issue} unit(s) for {req.request_code}, {bg_name} stock is at or below threshold ({inv.units_available}/{inv.low_stock_threshold}).",
                     notification_type="low_stock"
                 )
 
-            # 5. Success Notification
+            # 6. Success Notification
+            p_name = req.patient_name or (req.patient.name if req.patient else (req.user.name if req.user else 'Recipient'))
             create_notification(
                 db,
                 title=f"📦 Blood Issued: {issue_code} ({quantity_to_issue} Units {bg_name})",
-                message=f"Issued {quantity_to_issue} unit(s) of {bg_name} for patient {req.patient.name if req.patient else ''} to recipient {recipient_name}. Certificate: {cert_no}",
+                message=f"Issued {quantity_to_issue} unit(s) of {bg_name} for {p_name} to recipient {recipient_name}. Certificate: {cert_no}",
                 notification_type="approval"
             )
 
-            # 6. Audit Log
+            # 7. Audit Log
             log_audit(db, 'BLOOD_ISSUED', 'BloodIssue', f'Issued {quantity_to_issue} unit(s) {bg_name} under {issue_code} for request {req.request_code}')
             db.commit()
 

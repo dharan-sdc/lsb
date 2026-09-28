@@ -11,6 +11,9 @@ from models.request_model import BloodRequest
 from models.issue_model import BloodIssue
 from models.notification_model import Notification
 from models.audit_model import AuditLog
+from models.camp_model import BloodCamp, CampRegistration
+from models.blood_unit_model import BloodUnit
+from models.blood_bank_profile_model import BloodBankProfile
 
 __all__ = [
     'Base',
@@ -26,4 +29,8 @@ __all__ = [
     'BloodIssue',
     'Notification',
     'AuditLog',
+    'BloodCamp',
+    'CampRegistration',
+    'BloodUnit',
+    'BloodBankProfile',
 ]

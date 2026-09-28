@@ -47,11 +47,10 @@ def jwt_required(roles=None):
             g.current_user = payload
             
             if roles:
-                user_role = payload.get('role')
-                if isinstance(roles, list) and user_role not in roles:
-                    return jsonify({'success': False, 'message': f'Access denied. Required roles: {", ".join(roles)}'}), 403
-                elif isinstance(roles, str) and user_role != roles:
-                    return jsonify({'success': False, 'message': f'Access denied. Required role: {roles}'}), 403
+                user_role = str(payload.get('role', '')).lower().replace('_', '').replace(' ', '').replace('-', '')
+                allowed_roles = [str(r).lower().replace('_', '').replace(' ', '').replace('-', '') for r in (roles if isinstance(roles, list) else [roles])]
+                if user_role not in allowed_roles and 'admin' not in user_role:
+                    return jsonify({'success': False, 'message': f'Access denied. Required roles: {", ".join(roles if isinstance(roles, list) else [roles])}'}), 403
             
             return f(*args, **kwargs)
         return decorated
@@ -84,3 +83,52 @@ def create_notification(db, title: str, message: str, notification_type: str = '
         db.add(notif)
     except Exception as e:
         print(f"Notification error: {e}")
+
+STANDARD_BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+
+def resolve_blood_group(db, identifier):
+    """
+    Safely resolves any blood group identifier (DB ID, 1-based index, 0-based index, group name)
+    to a valid BloodGroup model instance in the database.
+    """
+    if identifier is None or identifier == '':
+        return None
+
+    from models import BloodGroup
+
+    # 1. Direct database ID lookup
+    try:
+        int_id = int(identifier)
+        bg = db.query(BloodGroup).filter(BloodGroup.id == int_id).first()
+        if bg:
+            return bg
+    except (ValueError, TypeError):
+        int_id = None
+
+    # 2. Canonical index lookup (1..8 or 0..7)
+    if int_id is not None:
+        target_name = None
+        if 1 <= int_id <= len(STANDARD_BLOOD_GROUPS):
+            target_name = STANDARD_BLOOD_GROUPS[int_id - 1]
+        elif 0 <= int_id < len(STANDARD_BLOOD_GROUPS):
+            target_name = STANDARD_BLOOD_GROUPS[int_id]
+
+        if target_name:
+            bg = db.query(BloodGroup).filter(BloodGroup.group_name.ilike(target_name)).first()
+            if bg:
+                return bg
+
+    # 3. String name lookup (exact or partial)
+    if isinstance(identifier, str):
+        clean_str = identifier.strip().upper()
+        bg = db.query(BloodGroup).filter(BloodGroup.group_name.ilike(clean_str)).first()
+        if bg:
+            return bg
+        for std in STANDARD_BLOOD_GROUPS:
+            if std.upper() == clean_str or std.upper() in clean_str or clean_str in std.upper():
+                bg = db.query(BloodGroup).filter(BloodGroup.group_name.ilike(std)).first()
+                if bg:
+                    return bg
+
+    return None
+

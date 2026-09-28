@@ -12,6 +12,11 @@ from views.hospital_views import hospital_views
 from views.search_views import search_views
 from views.report_views import report_views
 from views.notification_views import notification_views
+from views.camp_views import camp_views
+from views.unit_views import unit_views
+from views.blood_bank_views import blood_bank_views
+from views.import_views import import_views
+from views.audit_views import audit_views
 
 def register_blueprints(app):
     app.register_blueprint(auth_views)
@@ -28,3 +33,8 @@ def register_blueprints(app):
     app.register_blueprint(search_views)
     app.register_blueprint(report_views)
     app.register_blueprint(notification_views)
+    app.register_blueprint(camp_views)
+    app.register_blueprint(unit_views)
+    app.register_blueprint(blood_bank_views)
+    app.register_blueprint(import_views)
+    app.register_blueprint(audit_views)

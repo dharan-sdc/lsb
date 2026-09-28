@@ -39,7 +39,15 @@ class InventoryController:
         with get_db() as db:
             inv = db.query(BloodInventory).filter(BloodInventory.blood_group_id == blood_group_id).first()
             if not inv:
-                return {'success': False, 'message': 'Inventory record not found for this blood group'}, 404
+                inv = BloodInventory(
+                    blood_group_id=blood_group_id,
+                    units_available=0,
+                    total_ml=0.0,
+                    low_stock_threshold=5,
+                    storage_fridge=storage_fridge or 'Central Fridge Unit A-01'
+                )
+                db.add(inv)
+                db.flush()
 
             new_units = inv.units_available + quantity_change
             if new_units < 0:
@@ -92,7 +100,15 @@ class InventoryController:
 
             inv = db.query(BloodInventory).filter(BloodInventory.blood_group_id == int(blood_group_id)).first()
             if not inv:
-                return {'success': False, 'message': 'Inventory record not found'}, 404
+                inv = BloodInventory(
+                    blood_group_id=int(blood_group_id),
+                    units_available=0,
+                    total_ml=0.0,
+                    low_stock_threshold=threshold,
+                    storage_fridge='Central Fridge Unit A-01'
+                )
+                db.add(inv)
+                db.flush()
 
             inv.low_stock_threshold = threshold
             bg_name = inv.blood_group.group_name if inv.blood_group else ''

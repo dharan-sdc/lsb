@@ -1,7 +1,18 @@
 from datetime import datetime, timezone
 from database import get_db
-from models import User
-from auth_utils import hash_password, verify_password, generate_token, log_audit
+from models import User, BloodGroup, Hospital, Donor
+from auth_utils import hash_password, verify_password, generate_token, log_audit, resolve_blood_group
+
+def _resolve_valid_blood_group_id(db, requested_id):
+    """Safely resolves any blood group identifier to a valid BloodGroup ID in the database."""
+    if requested_id is None:
+        return None
+    bg = resolve_blood_group(db, requested_id)
+    if bg:
+        return bg.id
+    # If not resolved and a value was requested, fallback to first blood group in DB
+    first_bg = db.query(BloodGroup).order_by(BloodGroup.id.asc()).first()
+    return first_bg.id if first_bg else None
 
 class AuthController:
     @staticmethod
@@ -26,20 +37,52 @@ class AuthController:
             log_audit(db, 'LOGIN_SUCCESS', 'Auth', f'User {user.email} logged in successfully', user_email=user.email)
             db.commit()
 
+            user_dict = user.to_dict()
+            if user.blood_group_id:
+                bg = db.query(BloodGroup).filter(BloodGroup.id == user.blood_group_id).first()
+                if bg:
+                    user_dict['blood_group_name'] = bg.group_name
+
             return {
                 'success': True,
                 'message': 'Login successful',
                 'token': token,
-                'user': user.to_dict()
+                'user': user_dict
             }, 200
 
     @staticmethod
-    def register(name, email, password, role='User', phone='', blood_group_id=None, age=None, gender=None, address=None, hospital_id=None):
-        name = (name or '').strip()
-        email = (email or '').strip().lower()
+    def register(name_or_data=None, email=None, password=None, role='User', phone='', **kwargs):
+        if isinstance(name_or_data, dict):
+            return AuthController.register_user(name_or_data)
+        data = {
+            'name': name_or_data,
+            'email': email,
+            'password': password,
+            'role': role,
+            'phone': phone,
+        }
+        data.update(kwargs)
+        return AuthController.register_user(data)
+
+    @staticmethod
+    def register_user(data):
+        name = (data.get('name') or '').strip()
+        email = (data.get('email') or '').strip().lower()
+        password = data.get('password') or ''
+        role = data.get('role') or 'User'
+        phone = data.get('phone')
+        blood_group_id = data.get('blood_group_id')
+        age = data.get('age')
+        gender = data.get('gender')
+        address = data.get('address')
+        city = data.get('city')
+        emergency_contact = data.get('emergency_contact')
+        dob = data.get('dob')
+        hospital_id = data.get('hospital_id')
+        is_donor = bool(data.get('is_donor', False))
 
         if not name or not email or not password:
-            return {'success': False, 'message': 'Name, Email and Password are required'}, 400
+            return {'success': False, 'message': 'Name, Email, and Password are required'}, 400
 
         if len(password) < 6:
             return {'success': False, 'message': 'Password must be at least 6 characters'}, 400
@@ -52,10 +95,19 @@ class AuthController:
             if existing:
                 return {'success': False, 'message': 'Email is already registered'}, 409
 
+            # Resolve valid blood group id
+            if blood_group_id is not None or is_donor:
+                blood_group_id = _resolve_valid_blood_group_id(db, blood_group_id)
+
             try:
-                blood_group_id = int(blood_group_id) if blood_group_id else None
+                hospital_id = int(hospital_id) if hospital_id else None
             except (ValueError, TypeError):
-                blood_group_id = None
+                hospital_id = None
+
+            if hospital_id is not None:
+                hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+                if not hosp:
+                    hospital_id = None
 
             try:
                 age = int(age) if age else None
@@ -63,36 +115,63 @@ class AuthController:
                 age = None
 
             try:
-                hospital_id = int(hospital_id) if hospital_id else None
-            except (ValueError, TypeError):
-                hospital_id = None
+                new_user = User(
+                    name=name,
+                    email=email,
+                    password_hash=hash_password(password),
+                    role=assigned_role,
+                    status='Active',
+                    phone=phone,
+                    blood_group_id=blood_group_id,
+                    age=age,
+                    gender=gender,
+                    dob=dob,
+                    city=city,
+                    address=address,
+                    emergency_contact=emergency_contact,
+                    is_blood_group_verified=False,
+                    is_donor=is_donor,
+                    hospital_id=hospital_id
+                )
+                db.add(new_user)
+                db.flush()
 
-            new_user = User(
-                name=name,
-                email=email,
-                password_hash=hash_password(password),
-                role=assigned_role,
-                status='Active',
-                phone=phone,
-                blood_group_id=blood_group_id,
-                age=age,
-                gender=gender,
-                address=address,
-                hospital_id=hospital_id
-            )
-            db.add(new_user)
-            db.flush()
-            
-            token = generate_token(new_user)
-            log_audit(db, 'USER_REGISTERED', 'Auth', f'New user {new_user.email} registered with role {assigned_role}', user_email=new_user.email)
-            db.commit()
+                # If user pledged/registered as donor, add to Donors registry
+                if is_donor and blood_group_id:
+                    existing_donor = db.query(Donor).filter((Donor.email == email) | (Donor.contact == phone)).first()
+                    if not existing_donor:
+                        d = Donor(
+                            name=name,
+                            age=age or 25,
+                            gender=gender or 'Other',
+                            blood_group_id=blood_group_id,
+                            contact=phone or email,
+                            email=email,
+                            address=address or city,
+                            medical_notes='Registered Voluntary Donor via User Portal',
+                            status='Eligible'
+                        )
+                        db.add(d)
+                
+                token = generate_token(new_user)
+                log_audit(db, 'USER_REGISTERED', 'Auth', f'New user {new_user.email} registered with role {assigned_role} (is_donor={is_donor})', user_email=new_user.email)
+                db.commit()
 
-            return {
-                'success': True,
-                'message': 'Registration successful',
-                'token': token,
-                'user': new_user.to_dict()
-            }, 201
+                user_dict = new_user.to_dict()
+                if new_user.blood_group_id:
+                    bg = db.query(BloodGroup).filter(BloodGroup.id == new_user.blood_group_id).first()
+                    if bg:
+                        user_dict['blood_group_name'] = bg.group_name
+
+                return {
+                    'success': True,
+                    'message': 'Registration successful',
+                    'token': token,
+                    'user': user_dict
+                }, 201
+            except Exception as e:
+                db.rollback()
+                return {'success': False, 'message': f'Registration failed: {str(e)}'}, 400
 
     @staticmethod
     def forgot_password(email):
@@ -150,34 +229,95 @@ class AuthController:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 return {'success': False, 'message': 'User not found'}, 404
-            return {'success': True, 'user': user.to_dict()}, 200
+            user_dict = user.to_dict()
+            if user.blood_group_id:
+                bg = db.query(BloodGroup).filter(BloodGroup.id == user.blood_group_id).first()
+                if bg:
+                    user_dict['blood_group_name'] = bg.group_name
+            return {'success': True, 'user': user_dict}, 200
 
     @staticmethod
-    def update_profile(user_id, data):
+    def update_profile(user_id, data, current_user_role='User'):
         with get_db() as db:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 return {'success': False, 'message': 'User not found'}, 404
 
-            if 'name' in data and data['name']:
-                user.name = data['name'].strip()
-            if 'phone' in data:
-                user.phone = data['phone']
-            if 'age' in data and data['age']:
-                try:
-                    user.age = int(data['age'])
-                except ValueError:
-                    pass
-            if 'gender' in data:
-                user.gender = data['gender']
-            if 'blood_group_id' in data and data['blood_group_id']:
-                try:
-                    user.blood_group_id = int(data['blood_group_id'])
-                except ValueError:
-                    pass
-            if 'address' in data:
-                user.address = data['address']
+            try:
+                if 'name' in data and data['name']:
+                    user.name = data['name'].strip()
+                if 'phone' in data:
+                    user.phone = data['phone']
+                if 'age' in data and data['age']:
+                    try:
+                        user.age = int(data['age'])
+                    except (ValueError, TypeError):
+                        pass
+                if 'gender' in data:
+                    user.gender = data['gender']
+                if 'dob' in data:
+                    user.dob = data['dob']
+                if 'city' in data:
+                    user.city = data['city']
+                if 'emergency_contact' in data:
+                    user.emergency_contact = data['emergency_contact']
 
-            log_audit(db, 'PROFILE_UPDATED', 'Auth', f'User {user.email} updated profile', user_email=user.email)
-            db.commit()
-            return {'success': True, 'message': 'Profile updated successfully', 'user': user.to_dict()}, 200
+                # Blood Group Protection: Cannot arbitrarily change verified blood group
+                if 'blood_group_id' in data and data['blood_group_id'] is not None:
+                    new_bg_id = _resolve_valid_blood_group_id(db, data['blood_group_id'])
+                    if user.blood_group_id and user.blood_group_id != new_bg_id:
+                        if user.is_blood_group_verified and current_user_role not in ['Admin', 'BloodBank']:
+                            return {
+                                'success': False,
+                                'message': 'Your blood group has been verified by clinical laboratory testing and cannot be changed directly. Please contact Blood Bank administration with supporting medical documents to request a modification.'
+                            }, 403
+                        user.blood_group_id = new_bg_id
+                    elif not user.blood_group_id:
+                        user.blood_group_id = new_bg_id
+
+                if 'is_blood_group_verified' in data and current_user_role in ['Admin', 'BloodBank']:
+                    user.is_blood_group_verified = bool(data['is_blood_group_verified'])
+
+                if 'address' in data:
+                    user.address = data['address']
+
+                if 'is_donor' in data:
+                    user.is_donor = bool(data['is_donor'])
+                    if user.is_donor:
+                        # Ensure user has a valid blood_group_id
+                        user.blood_group_id = _resolve_valid_blood_group_id(db, user.blood_group_id)
+
+                        if user.blood_group_id:
+                            existing_donor = db.query(Donor).filter((Donor.email == user.email) | (Donor.contact == user.phone)).first()
+                            if not existing_donor:
+                                d = Donor(
+                                    name=user.name,
+                                    age=user.age or 25,
+                                    gender=user.gender or 'Other',
+                                    blood_group_id=user.blood_group_id,
+                                    contact=user.phone or user.email,
+                                    email=user.email,
+                                    address=user.address,
+                                    medical_notes='Registered Voluntary Donor via User Portal',
+                                    status='Eligible'
+                                )
+                                db.add(d)
+                            else:
+                                existing_donor.blood_group_id = user.blood_group_id
+                                existing_donor.name = user.name
+                                existing_donor.contact = user.phone or user.email
+                                existing_donor.address = user.address
+
+                log_audit(db, 'PROFILE_UPDATED', 'Auth', f'User {user.email} updated profile (is_donor={user.is_donor})', user_email=user.email)
+                db.commit()
+
+                user_dict = user.to_dict()
+                if user.blood_group_id:
+                    bg = db.query(BloodGroup).filter(BloodGroup.id == user.blood_group_id).first()
+                    if bg:
+                        user_dict['blood_group_name'] = bg.group_name
+
+                return {'success': True, 'message': 'Profile updated successfully', 'user': user_dict}, 200
+            except Exception as e:
+                db.rollback()
+                return {'success': False, 'message': f'Failed to update profile: {str(e)}'}, 400

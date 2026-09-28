@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone, date
 from database import get_db
 from models import BloodDonation, Donor, BloodGroup, BloodInventory, User
-from auth_utils import log_audit, create_notification
+from auth_utils import log_audit, create_notification, resolve_blood_group
 
 class DonationController:
     @staticmethod
@@ -96,14 +96,10 @@ class DonationController:
             if not blood_group_id:
                 return {'success': False, 'message': 'Blood group is required for donation'}, 400
 
-            try:
-                blood_group_id = int(blood_group_id)
-            except ValueError:
-                return {'success': False, 'message': 'Invalid blood group ID'}, 400
-
-            bg = db.query(BloodGroup).filter(BloodGroup.id == blood_group_id).first()
+            bg = resolve_blood_group(db, blood_group_id)
             if not bg:
                 return {'success': False, 'message': 'Blood group not found'}, 404
+            blood_group_id = bg.id
 
             # Generate unique code
             unique_suffix = str(uuid.uuid4())[:8].upper()

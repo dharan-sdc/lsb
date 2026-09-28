@@ -1,14 +1,20 @@
 from database import get_db
 from models import Patient, BloodGroup, Hospital, BloodRequest
-from auth_utils import log_audit
+from auth_utils import log_audit, resolve_blood_group
 
 class PatientController:
     @staticmethod
-    def list_patients(search='', blood_group_id=None, hospital_id=None):
+    def list_patients(search='', blood_group_id=None, hospital_id=None, department=None, status=None):
         with get_db() as db:
             query = db.query(Patient)
             if search:
-                query = query.filter((Patient.name.ilike(f'%{search}%')) | (Patient.condition.ilike(f'%{search}%')) | (Patient.contact.ilike(f'%{search}%')))
+                query = query.filter(
+                    (Patient.name.ilike(f'%{search}%')) |
+                    (Patient.condition.ilike(f'%{search}%')) |
+                    (Patient.contact.ilike(f'%{search}%')) |
+                    (Patient.doctor_name.ilike(f'%{search}%')) |
+                    (Patient.department.ilike(f'%{search}%'))
+                )
             if blood_group_id:
                 try:
                     query = query.filter(Patient.blood_group_id == int(blood_group_id))
@@ -19,6 +25,10 @@ class PatientController:
                     query = query.filter(Patient.hospital_id == int(hospital_id))
                 except ValueError:
                     pass
+            if department and department != 'All':
+                query = query.filter(Patient.department == department)
+            if status and status != 'All':
+                query = query.filter(Patient.status == status)
 
             patients = query.order_by(Patient.id.desc()).all()
             return {
@@ -39,15 +49,15 @@ class PatientController:
 
         try:
             age = int(age)
-            blood_group_id = int(blood_group_id)
-            hospital_id = int(data.get('hospital_id')) if data.get('hospital_id') else None
+            hospital_id = int(data.get('hospital_id')) if data.get('hospital_id') else 1
         except ValueError:
             return {'success': False, 'message': 'Invalid ID or age format'}, 400
 
         with get_db() as db:
-            bg = db.query(BloodGroup).filter(BloodGroup.id == blood_group_id).first()
+            bg = resolve_blood_group(db, blood_group_id)
             if not bg:
                 return {'success': False, 'message': 'Selected Blood Group does not exist'}, 404
+            blood_group_id = bg.id
 
             patient = Patient(
                 name=name,
@@ -56,13 +66,16 @@ class PatientController:
                 blood_group_id=blood_group_id,
                 hospital_id=hospital_id,
                 condition=data.get('condition'),
+                department=data.get('department', 'General Ward'),
+                doctor_name=data.get('doctor_name'),
+                admission_notes=data.get('admission_notes'),
                 contact=data.get('contact'),
                 address=data.get('address'),
                 status=data.get('status', 'Admitted')
             )
             db.add(patient)
             db.flush()
-            log_audit(db, 'PATIENT_CREATED', 'Patient', f'Admitted patient {name} ({bg.group_name})')
+            log_audit(db, 'PATIENT_CREATED', 'Patient', f'Admitted patient {name} ({bg.group_name}) - Dept: {patient.department}')
             db.commit()
 
             return {
@@ -98,11 +111,19 @@ class PatientController:
             if 'gender' in data and data['gender']:
                 patient.gender = data['gender']
             if 'blood_group_id' in data and data['blood_group_id']:
-                patient.blood_group_id = int(data['blood_group_id'])
+                bg = resolve_blood_group(db, data['blood_group_id'])
+                if bg:
+                    patient.blood_group_id = bg.id
             if 'hospital_id' in data:
                 patient.hospital_id = int(data['hospital_id']) if data['hospital_id'] else None
             if 'condition' in data:
                 patient.condition = data['condition']
+            if 'department' in data:
+                patient.department = data['department']
+            if 'doctor_name' in data:
+                patient.doctor_name = data['doctor_name']
+            if 'admission_notes' in data:
+                patient.admission_notes = data['admission_notes']
             if 'contact' in data:
                 patient.contact = data['contact']
             if 'address' in data:

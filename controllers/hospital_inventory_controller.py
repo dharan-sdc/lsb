@@ -190,3 +190,88 @@ class HospitalInventoryController:
                 'remaining_units': item.units_available,
                 'item': item.to_dict()
             }, 200
+
+    @staticmethod
+    def confirm_receipt(hospital_id, data, user_email='hospital@bloodbank.com'):
+        request_id = data.get('request_id')
+        blood_group_id = data.get('blood_group_id')
+        units = data.get('units', 1)
+        received_by = data.get('received_by', 'Hospital Staff')
+        storage_fridge = data.get('storage_fridge')
+
+        try:
+            if units:
+                units = int(units)
+        except (ValueError, TypeError):
+            units = 1
+
+        with get_db() as db:
+            hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+            if not hosp:
+                return {'success': False, 'message': 'Hospital not found'}, 404
+
+            from models import BloodRequest
+            if request_id:
+                try:
+                    req = db.query(BloodRequest).filter(BloodRequest.id == int(request_id)).first()
+                    if req:
+                        blood_group_id = req.blood_group_id
+                        units = req.quantity_units
+                        req.status = 'Completed'
+                        req.updated_at = datetime.now(timezone.utc)
+                except ValueError:
+                    pass
+
+            if not blood_group_id:
+                return {'success': False, 'message': 'Blood Group is required'}, 400
+
+            try:
+                blood_group_id = int(blood_group_id)
+            except ValueError:
+                return {'success': False, 'message': 'Invalid Blood Group ID'}, 400
+
+            item = db.query(HospitalInventory).filter(
+                HospitalInventory.hospital_id == hospital_id,
+                HospitalInventory.blood_group_id == blood_group_id
+            ).first()
+
+            if not item:
+                item = HospitalInventory(
+                    hospital_id=hospital_id,
+                    blood_group_id=blood_group_id,
+                    units_available=units,
+                    total_ml=float(units) * 450.0,
+                    low_stock_threshold=3,
+                    storage_fridge=storage_fridge or 'Hospital Emergency Fridge - Unit 1'
+                )
+                db.add(item)
+            else:
+                item.units_available += units
+                item.total_ml += float(units) * 450.0
+                if storage_fridge:
+                    item.storage_fridge = storage_fridge
+                item.last_updated = datetime.now(timezone.utc)
+
+            bg_name = item.blood_group.group_name if item.blood_group else 'Blood'
+
+            create_notification(
+                db,
+                title=f"📦 Blood Receipt Confirmed: {hosp.name}",
+                message=f"Received and verified {units} unit(s) of {bg_name} into hospital storage by {received_by}.",
+                notification_type="approval"
+            )
+
+            log_audit(
+                db,
+                action='HOSPITAL_BLOOD_RECEIVED',
+                module='HospitalInventory',
+                details=f'{hosp.name}: Confirmed receipt of {units} unit(s) of {bg_name} from Blood Bank. Hospital inventory increased to {item.units_available} units.',
+                user_email=user_email
+            )
+            db.commit()
+
+            return {
+                'success': True,
+                'message': f'Confirmed receipt of {units} unit(s) of {bg_name}! Hospital inventory updated.',
+                'item': item.to_dict()
+            }, 200

@@ -65,12 +65,19 @@ def get_request(request_id):
     return jsonify(res), code
 
 @request_views.route('/<int:request_id>/status', methods=['PUT'])
-@jwt_required(roles=['BloodBank', 'Admin'])
+@jwt_required()
 def update_status(request_id):
     data = request.get_json() or {}
+    new_status = data.get('status')
+    role = g.current_user.get('role')
+
+    if role not in ['BloodBank', 'Admin']:
+        if new_status != 'Cancelled':
+            return jsonify({'success': False, 'message': 'Only Blood Bank staff or Admins can approve or reject requests'}), 403
+
     res, code = RequestController.update_status(
         request_id,
-        data.get('status'),
+        new_status,
         data.get('rejection_reason')
     )
     return jsonify(res), code

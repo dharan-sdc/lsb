@@ -10,10 +10,17 @@ class Hospital(Base):
     name = Column(String(200), nullable=False)
     license_no = Column(String(100), nullable=True)
     address = Column(Text, nullable=False)
+    city = Column(String(100), default='Metropolis')
+    state = Column(String(100), default='State')
     phone = Column(String(50), nullable=False)
     email = Column(String(150), nullable=False)
+    website = Column(String(150), nullable=True)
     contact_person = Column(String(150), nullable=True)
-    hospital_type = Column(String(50), default='General')  # Government, Private, Trauma Center, Clinic
+    operating_hours = Column(String(100), default='24/7 Emergency Care')
+    emergency_contact = Column(String(100), nullable=True)
+    hospital_type = Column(String(50), default='General')  # Government, Private, Trauma Center, Clinic, Teaching/Multi-Specialty
+    verification_status = Column(String(50), default='Verified')  # Verified, Pending, Suspended
+    has_inventory = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -25,10 +32,17 @@ class Hospital(Base):
             'name': self.name,
             'license_no': self.license_no,
             'address': self.address,
+            'city': self.city,
+            'state': self.state,
             'phone': self.phone,
             'email': self.email,
+            'website': self.website,
             'contact_person': self.contact_person,
+            'operating_hours': self.operating_hours,
+            'emergency_contact': self.emergency_contact,
             'hospital_type': self.hospital_type,
-            'is_active': self.is_active,
+            'verification_status': self.verification_status,
+            'has_inventory': bool(self.has_inventory),
+            'is_active': bool(self.is_active),
             'created_at': self.created_at.isoformat() if self.created_at else None
         }

@@ -16,10 +16,13 @@ class BloodRequest(Base):
     patient_gender = Column(String(20), nullable=True)
     hospital_id = Column(Integer, ForeignKey('hospitals.id'), nullable=True)
     blood_group_id = Column(Integer, ForeignKey('blood_groups.id'), nullable=False)
+    component_type = Column(String(50), default='Whole Blood')  # Whole Blood, Packed RBC, Platelets, Plasma, Cryoprecipitate
     quantity_units = Column(Integer, default=1, nullable=False)
     urgency = Column(String(30), default='Normal')  # Normal, Urgent, Critical
     required_date = Column(Date, nullable=False)
     reason = Column(Text, nullable=True)
+    doctor_name = Column(String(150), nullable=True)
+    department = Column(String(100), nullable=True)
     status = Column(String(30), default='Pending')  # Pending, Approved, Rejected, Completed, Cancelled
     rejection_reason = Column(Text, nullable=True)
     requested_by = Column(String(120), nullable=True)
@@ -54,10 +57,13 @@ class BloodRequest(Base):
             'hospital_name': self.hospital.name if self.hospital else ('Direct User Request' if self.requester_type == 'User' else 'General Clinic'),
             'blood_group_id': self.blood_group_id,
             'blood_group_name': self.blood_group.group_name if self.blood_group else 'Unknown',
+            'component_type': self.component_type or 'Whole Blood',
             'quantity_units': self.quantity_units,
             'urgency': self.urgency,
             'required_date': self.required_date.isoformat() if self.required_date else None,
             'reason': self.reason,
+            'doctor_name': self.doctor_name or (self.patient.doctor_name if self.patient else None),
+            'department': self.department or (self.patient.department if self.patient else None),
             'status': self.status,
             'rejection_reason': self.rejection_reason,
             'requested_by': self.requested_by or (self.user.name if self.user else None),

@@ -10,7 +10,15 @@ def list_patients():
     search = request.args.get('search', '').strip()
     blood_group_id = request.args.get('blood_group_id')
     hospital_id = request.args.get('hospital_id')
-    res, code = PatientController.list_patients(search, blood_group_id, hospital_id)
+    department = request.args.get('department')
+    status = request.args.get('status')
+    res, code = PatientController.list_patients(
+        search=search,
+        blood_group_id=blood_group_id,
+        hospital_id=hospital_id,
+        department=department,
+        status=status
+    )
     return jsonify(res), code
 
 @patient_views.route('', methods=['POST'])

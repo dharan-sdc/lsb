@@ -19,6 +19,25 @@ def create_hospital():
     res, code = HospitalController.create_hospital(data)
     return jsonify(res), code
 
+@hospital_views.route('/dashboard', methods=['GET'])
+@jwt_required()
+def get_current_hospital_dashboard():
+    from flask import g
+    role = g.current_user.get('role')
+    hospital_id = request.args.get('hospital_id')
+    if not hospital_id and role == 'Hospital':
+        hospital_id = g.current_user.get('hospital_id') or 1
+    elif not hospital_id:
+        hospital_id = 1
+    res, code = HospitalController.get_dashboard_stats(int(hospital_id))
+    return jsonify(res), code
+
+@hospital_views.route('/<int:hospital_id>/dashboard', methods=['GET'])
+@jwt_required()
+def get_hospital_dashboard(hospital_id):
+    res, code = HospitalController.get_dashboard_stats(hospital_id)
+    return jsonify(res), code
+
 @hospital_views.route('/<int:hospital_id>', methods=['GET'])
 @jwt_required()
 def get_hospital(hospital_id):
@@ -26,7 +45,7 @@ def get_hospital(hospital_id):
     return jsonify(res), code
 
 @hospital_views.route('/<int:hospital_id>', methods=['PUT'])
-@jwt_required(roles=['Admin'])
+@jwt_required()
 def update_hospital(hospital_id):
     data = request.get_json() or {}
     res, code = HospitalController.update_hospital(hospital_id, data)

@@ -32,6 +32,7 @@ def adjust_stock():
     return jsonify(res), code
 
 @hospital_inventory_views.route('/issue', methods=['POST'])
+@hospital_inventory_views.route('/use', methods=['POST'])
 @jwt_required(roles=['Hospital', 'Admin'])
 def issue_to_patient():
     data = request.get_json() or {}
@@ -43,4 +44,18 @@ def issue_to_patient():
 
     user_email = g.current_user.get('email', 'hospital@bloodbank.com')
     res, code = HospitalInventoryController.issue_to_patient(hospital_id, data, user_email=user_email)
+    return jsonify(res), code
+
+@hospital_inventory_views.route('/confirm-receipt', methods=['POST'])
+@jwt_required(roles=['Hospital', 'Admin'])
+def confirm_receipt():
+    data = request.get_json() or {}
+    hospital_id = data.get('hospital_id')
+    if not hospital_id and g.current_user.get('role') == 'Hospital':
+        hospital_id = g.current_user.get('hospital_id') or 1
+    elif not hospital_id:
+        hospital_id = 1
+
+    user_email = g.current_user.get('email', 'hospital@bloodbank.com')
+    res, code = HospitalInventoryController.confirm_receipt(hospital_id, data, user_email=user_email)
     return jsonify(res), code

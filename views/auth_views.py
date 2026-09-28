@@ -13,18 +13,7 @@ def login():
 @auth_views.route('/register', methods=['POST'])
 def register():
     data = request.get_json() or {}
-    res, status = AuthController.register(
-        data.get('name'),
-        data.get('email'),
-        data.get('password'),
-        data.get('role', 'User'),
-        data.get('phone', ''),
-        blood_group_id=data.get('blood_group_id'),
-        age=data.get('age'),
-        gender=data.get('gender'),
-        address=data.get('address'),
-        hospital_id=data.get('hospital_id')
-    )
+    res, status = AuthController.register_user(data)
     return jsonify(res), status
 
 @auth_views.route('/forgot-password', methods=['POST'])
@@ -54,8 +43,9 @@ def get_me():
 @jwt_required()
 def update_profile():
     user_id = g.current_user.get('user_id')
+    role = g.current_user.get('role', 'User')
     data = request.get_json() or {}
-    res, status = AuthController.update_profile(user_id, data)
+    res, status = AuthController.update_profile(user_id, data, current_user_role=role)
     return jsonify(res), status
 
 @auth_views.route('/logout', methods=['POST'])

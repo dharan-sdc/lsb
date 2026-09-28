@@ -1,6 +1,6 @@
 from database import get_db
 from models import Donor, BloodGroup, BloodDonation
-from auth_utils import log_audit
+from auth_utils import log_audit, resolve_blood_group
 
 class DonorController:
     @staticmethod
@@ -37,9 +37,8 @@ class DonorController:
 
         try:
             age = int(age)
-            blood_group_id = int(blood_group_id)
         except ValueError:
-            return {'success': False, 'message': 'Age and Blood Group ID must be integers'}, 400
+            return {'success': False, 'message': 'Age must be an integer'}, 400
 
         if age < 18 or age > 65:
             eligibility_status = 'Ineligible'
@@ -47,9 +46,10 @@ class DonorController:
             eligibility_status = data.get('status', 'Eligible')
 
         with get_db() as db:
-            bg = db.query(BloodGroup).filter(BloodGroup.id == blood_group_id).first()
+            bg = resolve_blood_group(db, blood_group_id)
             if not bg:
                 return {'success': False, 'message': 'Selected Blood Group does not exist'}, 404
+            blood_group_id = bg.id
 
             donor = Donor(
                 name=name,
@@ -100,7 +100,9 @@ class DonorController:
             if 'gender' in data and data['gender']:
                 donor.gender = data['gender']
             if 'blood_group_id' in data and data['blood_group_id']:
-                donor.blood_group_id = int(data['blood_group_id'])
+                bg = resolve_blood_group(db, data['blood_group_id'])
+                if bg:
+                    donor.blood_group_id = bg.id
             if 'contact' in data and data['contact']:
                 donor.contact = data['contact'].strip()
             if 'email' in data:

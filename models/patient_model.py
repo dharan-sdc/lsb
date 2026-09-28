@@ -13,6 +13,9 @@ class Patient(Base):
     blood_group_id = Column(Integer, ForeignKey('blood_groups.id'), nullable=False)
     hospital_id = Column(Integer, ForeignKey('hospitals.id'), nullable=True)
     condition = Column(String(255), nullable=True)  # e.g., Surgery, Thalassemia, Trauma
+    department = Column(String(100), default='General Ward')  # ICU, Emergency, Surgery, Oncology, Maternity, Pediatrics
+    doctor_name = Column(String(150), nullable=True)
+    admission_notes = Column(Text, nullable=True)
     contact = Column(String(50), nullable=True)
     address = Column(Text, nullable=True)
     admission_date = Column(Date, default=lambda: datetime.now(timezone.utc).date())
@@ -34,6 +37,9 @@ class Patient(Base):
             'hospital_id': self.hospital_id,
             'hospital_name': self.hospital.name if self.hospital else 'Direct / Walk-in',
             'condition': self.condition,
+            'department': self.department,
+            'doctor_name': self.doctor_name,
+            'admission_notes': self.admission_notes,
             'contact': self.contact,
             'address': self.address,
             'admission_date': self.admission_date.isoformat() if self.admission_date else None,

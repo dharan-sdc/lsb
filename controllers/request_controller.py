@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone, date
 from database import get_db
 from models import BloodRequest, Patient, Hospital, BloodGroup, BloodInventory, User
-from auth_utils import log_audit, create_notification
+from auth_utils import log_audit, create_notification, resolve_blood_group
 
 class RequestController:
     @staticmethod
@@ -79,9 +79,10 @@ class RequestController:
                 pass
 
         with get_db() as db:
-            bg = db.query(BloodGroup).filter(BloodGroup.id == blood_group_id).first()
+            bg = resolve_blood_group(db, blood_group_id)
             if not bg:
                 return {'success': False, 'message': 'Blood group not found'}, 404
+            blood_group_id = bg.id
 
             # Resolve patient name and requester details
             resolved_patient_name = patient_name
@@ -115,6 +116,10 @@ class RequestController:
             unique_suffix = str(uuid.uuid4())[:8].upper()
             request_code = f"REQ-{datetime.now().strftime('%Y%m%d')}-{unique_suffix}"
 
+            component_type = data.get('component_type', 'Whole Blood')
+            doctor_name = data.get('doctor_name')
+            department = data.get('department')
+
             req = BloodRequest(
                 request_code=request_code,
                 requester_type=requester_type,
@@ -125,10 +130,13 @@ class RequestController:
                 patient_gender=patient_gender,
                 hospital_id=hosp_id,
                 blood_group_id=blood_group_id,
+                component_type=component_type,
                 quantity_units=quantity_units,
                 urgency=urgency,
                 required_date=required_date,
                 reason=reason,
+                doctor_name=doctor_name,
+                department=department,
                 status='Pending',
                 requested_by=requested_by
             )

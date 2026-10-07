@@ -41,11 +41,12 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # Initialize and ensure all database schemas and tables exist
-    try:
-        init_db()
-    except Exception as e:
-        logger.warning(f"Database init exception: {e}")
+    # Initialize and ensure all database schemas and tables exist (local/dev mode)
+    if not os.getenv("VERCEL"):
+        try:
+            init_db()
+        except Exception as e:
+            logger.warning(f"Database init exception: {e}")
 
     # Enable CORS for all routes (important for Flutter Web / Mobile)
     CORS(app, resources={r"/api/*": {"origins": "*"}})

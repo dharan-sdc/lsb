@@ -1,12 +1,15 @@
+import os
 import time
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.pool import NullPool
 from contextlib import contextmanager
 from config import Config
 from models import Base
 
 engine = create_engine(
     Config.SQLALCHEMY_DATABASE_URI,
+    poolclass=NullPool if os.getenv("VERCEL") else None,
     pool_pre_ping=True,
     pool_recycle=300,
     echo=False

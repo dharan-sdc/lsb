@@ -22,12 +22,12 @@ class ImportController:
 
             if data_type == 'donors':
                 existing_emails = {d.email.lower().strip() for d in db.query(Donor.email).all() if d.email}
-                existing_phones = {d.phone.strip() for d in db.query(Donor.phone).all() if d.phone}
+                existing_phones = {d.contact.strip() for d in db.query(Donor.contact).all() if d.contact}
 
                 for idx, row in enumerate(items):
                     name = row.get('name', '').strip()
                     bg_name = str(row.get('blood_group', 'O+')).upper().strip()
-                    phone = str(row.get('phone', '')).strip()
+                    phone = str(row.get('phone', row.get('contact', ''))).strip()
                     email = str(row.get('email', '')).strip().lower()
                     age = row.get('age')
 
@@ -46,6 +46,7 @@ class ImportController:
                         'blood_group': bg_name,
                         'blood_group_id': bg_id,
                         'phone': phone,
+                        'contact': phone,
                         'email': email,
                         'age': age or 28,
                         'gender': row.get('gender', 'Other'),
@@ -128,19 +129,18 @@ class ImportController:
                     if not name: continue
                     bg_name = str(row.get('blood_group', 'O+')).upper().strip()
                     bg_id = blood_groups.get(bg_name, 1)
-                    donor_code = f"DNR-{datetime.now(timezone.utc).year}-{random.randint(1000, 9999)}"
+                    contact_val = row.get('contact') or row.get('phone') or 'Not Provided'
 
                     d = Donor(
-                        donor_code=donor_code,
                         name=name,
                         blood_group_id=bg_id,
-                        phone=row.get('phone'),
+                        contact=contact_val,
                         email=row.get('email'),
                         age=int(row.get('age', 28)),
                         gender=row.get('gender', 'Other'),
                         address=row.get('address', 'Imported Donor'),
-                        status='Active',
-                        eligibility_status='Eligible'
+                        medical_notes='Imported via CSV/JSON migration tool',
+                        status='Eligible'
                     )
                     db.add(d)
                     imported_count += 1
